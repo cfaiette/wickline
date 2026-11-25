@@ -114,6 +114,7 @@ export function sanitizeResult(r, { bars } = {}) {
       title: str(x.title, 40) || `Plot ${k + 1}`,
       color: color(x.color, '#4FA3F7'),
       colors,
+      hideLegend: x.hideLegend === true,
       type: oneOf(x.type, STYLES, 'line'),
       width: width === undefined ? undefined : Math.max(1, Math.min(4, width)),
       values,
@@ -130,7 +131,7 @@ export function sanitizeResult(r, { bars } = {}) {
   const known = (x) => typeof x === 'string' && (/^p\d{1,3}$/.test(x) ? Number(x.slice(1)) < plots.length : Object.hasOwn(consts, x));
   const fills = list(o.fills, LIMITS.fills)
     .filter((f) => f && known(f.from) && known(f.to))
-    .map((f) => ({ from: f.from, to: f.to, color: color(f.color, 'rgba(79, 163, 247, 0.12)') }));
+    .map((f) => ({ from: f.from, to: f.to, color: color(f.color, 'rgba(79, 163, 247, 0.12)'), label: str(f.label, 30) }));
   budget.spend(fills.length);
 
   const hlines = list(o.hlines, LIMITS.hlines).map((h) => ({ price: toNum(h?.price), color: color(h?.color, '#8E8A82') }));

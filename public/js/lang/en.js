@@ -373,6 +373,7 @@ export default {
   'chart.maxTitle': 'Maximize / restore (Alt+Enter)',
   'chart.maxAria': 'Maximize or restore',
   'chart.popout': 'Open in a new window',
+  'chart.scrollLatest': 'Scroll to latest bar',
   'chart.replay.pickHint': 'Click the candle where the replay starts',
   'chart.replay.random': 'Random',
   'chart.replay.startDate': 'Start date',

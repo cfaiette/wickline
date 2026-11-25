@@ -95,6 +95,7 @@ function normalizeIndicator(i) {
     for (const [k, c] of Object.entries(i.colors)) if (/^[A-Za-z_][\w]{0,40}$/.test(k) && safeColor(c, null)) colors[k] = safeColor(c);
   }
   const out = { ...i, id: typeof i.id === 'string' && i.id ? i.id.slice(0, 64) : uid(), colors };
+  out.hidden = i.hidden === true;
   if (i.type === 'script') {
     // The script declares its settings when it runs (applyScriptResult coerces them then); keep plain values.
     const params = {};
@@ -138,6 +139,8 @@ export function cloneChartState(s, overrides = {}) {
 const ICON_GEAR = '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.3 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1L11 21h4l.3-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>';
 const ICON_X = '<svg viewBox="0 0 24 24" width="14" height="14"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>';
 const ICON_CODE = '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_EYE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICON_EYE_OFF = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l18 18M10.6 6.1A11 11 0 0 1 12 6c6.5 0 10 6 10 6a13 13 0 0 1-3 3.4M6.5 7.5A14 14 0 0 0 2 12s3.5 6 10 6a11 11 0 0 0 4-.7"/></svg>';
 const ICON_MAX = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 const ICON_POP = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
@@ -179,7 +182,7 @@ function scriptDef(res) {
       min: i.min ?? -1e12, max: i.max ?? 1e12,
       step: i.step ?? (Number.isInteger(i.def) ? 1 : 0.01),
     })),
-    plots: res.plots.map((p) => ({ key: p.key, title: p.title, color: p.color, colorsArr: p.colors, type: p.type, width: p.width })),
+    plots: res.plots.map((p) => ({ key: p.key, title: p.title, color: p.color, colorsArr: p.colors, type: p.type, width: p.width, hideLegend: p.hideLegend })),
     levels: res.hlines.map((h) => h.price),
     levelColors: res.hlines.map((h) => h.color),
     fills: res.fills.map((f) => ({ ...f, consts: res.consts })),
@@ -271,6 +274,7 @@ export class ChartView {
         <button data-cell="max" title="${t('chart.maxTitle')}" aria-label="${t('chart.maxAria')}">${ICON_MAX}</button>
         <button data-cell="pop" title="${t('chart.popout')}" aria-label="${t('chart.popout')}">${ICON_POP}</button>
       </div>
+      <button class="scroll-latest" hidden title="${t('chart.scrollLatest')}" aria-label="${t('chart.scrollLatest')}"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 7l5 5-5 5M21 6v12"/></svg></button>
       <div class="overlay loading" hidden><div class="spinner"></div></div>
       <div class="overlay error" hidden></div>`;
     host.append(this.el);
@@ -444,8 +448,18 @@ export class ChartView {
     });
 
     this.chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      this.updateScrollLatest(range);
       if (!range || this.loadingOlder || !this.feed?.canLoadMore || !this.bars.length) return;
       if (range.from < 40) this.loadOlder();
+    });
+    this.q('.scroll-latest').addEventListener('click', () => {
+      const scale = this.chart.timeScale();
+      const range = scale.getVisibleLogicalRange();
+      const last = this.bars.length && scale.timeToIndex(this.bars[this.bars.length - 1].time);
+      if (!range || last === null || last === false) return;
+      const width = range.to - range.from;
+      const to = last + Math.min(10, width * 0.1);
+      scale.setVisibleLogicalRange({ from: to - width, to });
     });
 
     const rpBar = this.q('.replay-bar');
@@ -470,7 +484,7 @@ export class ChartView {
     });
     this.q('.qt-qty').addEventListener('change', (e) => this.hooks.onQuickQty?.(this, Number(e.target.value)));
 
-    this.resizeObserver = new ResizeObserver(() => this.positionPaneLegends());
+    this.resizeObserver = new ResizeObserver(() => { this.positionPaneLegends(); this.updateScrollLatest(); });
     this.resizeObserver.observe(this.chartEl);
     this.chartEl.addEventListener('mouseup', () => requestAnimationFrame(() => this.positionPaneLegends()));
 
@@ -481,6 +495,7 @@ export class ChartView {
       if (btn.dataset.act === 'rm-cmp') { this.removeCompare(row.dataset.cmp); return; }
       const id = row.dataset.id;
       if (btn.dataset.act === 'remove') this.removeIndicator(id);
+      else if (btn.dataset.act === 'visibility') this.toggleIndicatorVisibility(id);
       else if (btn.dataset.act === 'code') this.hooks.onEditScript?.(this, this.live.get(id)?.inst.scriptId);
       else this.openSettings(id, btn);
     };
@@ -636,8 +651,9 @@ export class ChartView {
     for (const plot of def.plots) {
       const opts = {
         color: plotColor(inst, plot),
+        visible: !inst.hidden,
         priceLineVisible: false,
-        lastValueVisible: !def.scale && !def.hideLastValue && plot.type !== 'dots',
+        lastValueVisible: !def.scale && !def.hideLastValue && !plot.hideLegend && plot.type !== 'dots',
         priceFormat: this.indicatorFormat(def),
       };
       if (def.scale) opts.priceScaleId = def.scale;
@@ -663,7 +679,7 @@ export class ChartView {
     });
     if (!def.overlay) first.getPane().setStretchFactor(0.3);
     entry.fillPrims = (def.fills || []).map((f) => {
-      const prim = new BandFill(() => this.fillArrays(entry, f), f);
+      const prim = new BandFill(() => entry.inst.hidden ? null : this.fillArrays(entry, f), f);
       first.attachPrimitive(prim);
       return { prim, target: first };
     });
@@ -791,7 +807,7 @@ export class ChartView {
     const old = entry.inst.params || {};
     const changedParams = Object.keys(old).length !== def.params.length || def.params.some((p) => !Object.is(old[p.key], params[p.key]));
     entry.inst.params = params;
-    const sig = JSON.stringify([def.overlay, def.plots.map((p) => [p.key, p.type, p.width]), def.levels, def.fills.map((f) => [f.from, f.to])]);
+    const sig = JSON.stringify([def.overlay, def.plots.map((p) => [p.key, p.type, p.width, p.hideLegend]), def.levels, def.fills.map((f) => [f.from, f.to, f.label])]);
     const structural = sig !== entry.sig;
     if (structural) {
       this.removeEntrySeries(entry);
@@ -817,8 +833,9 @@ export class ChartView {
         entry.markersTarget = target;
       }
       // In bar order (script-sanitize.js sorts them) and never past the bars this run had.
-      entry.markersApi.setMarkers(res.markers.filter((m) => times[m.i] != null)
-        .map((m) => ({ time: times[m.i], position: m.position, shape: m.shape, color: m.color, text: m.text })));
+      entry.scriptMarkers = res.markers.filter((m) => times[m.i] != null)
+        .map((m) => ({ time: times[m.i], position: m.position, shape: m.shape, color: m.color, text: m.text }));
+      entry.markersApi.setMarkers(entry.inst.hidden ? [] : entry.scriptMarkers);
     } else if (entry.markersApi) {
       entry.markersApi.setMarkers([]);
     }
@@ -838,7 +855,7 @@ export class ChartView {
       try { entry.tradeMarkers?.detach(); } catch { /* gone */ }
       if (entry.tradeLines && entry.tradeTarget) { try { entry.tradeTarget.detachPrimitive(entry.tradeLines); } catch { /* gone */ } }
       entry.tradeMarkers = LWC.createSeriesMarkers(this.main, []);
-      entry.tradeLines = new TradeLines(() => entry.tradeLineData);
+      entry.tradeLines = new TradeLines(() => entry.inst.hidden ? null : entry.tradeLineData);
       this.main.attachPrimitive(entry.tradeLines);
       entry.tradeTarget = this.main;
     }
@@ -854,7 +871,8 @@ export class ChartView {
       return { time: times[m.i], position: long ? 'aboveBar' : 'belowBar', shape: long ? 'arrowDown' : 'arrowUp', color: '#E040FB', text: (Object.hasOwn(SHORT, m.reason) && SHORT[m.reason]) || m.reason };
     });
     markers.sort((a, b) => a.time - b.time);
-    entry.tradeMarkers.setMarkers(markers);
+    entry.strategyMarkers = markers;
+    entry.tradeMarkers.setMarkers(entry.inst.hidden ? [] : markers);
     entry.tradeLineData = {
       trades: report.trades.map((t) => ({ ei: t.entryIndex, ep: t.entryPrice, xi: t.exitIndex, xp: t.exitPrice, win: t.pnl > 0 })),
     };
@@ -862,6 +880,19 @@ export class ChartView {
 
   /** Strategy entries on this chart (for the Strategy Tester). */
   strategies() { return [...this.live.values()].filter((e) => e.def?.strategy); }
+
+  toggleIndicatorVisibility(id) {
+    const entry = this.live.get(id);
+    if (!entry) return;
+    entry.inst.hidden = !entry.inst.hidden;
+    for (const { api } of entry.series) api.applyOptions({ visible: !entry.inst.hidden });
+    entry.markersApi?.setMarkers(entry.inst.hidden ? [] : (entry.scriptMarkers || []));
+    entry.tradeMarkers?.setMarkers(entry.inst.hidden ? [] : (entry.strategyMarkers || []));
+    // Trade lines are attached to the main price series; trigger a redraw for their callback.
+    if (entry.tradeLines && this.main) this.main.applyOptions({});
+    this.buildLegend();
+    this.hooks.onChange?.(this);
+  }
 
   setStrategyProps(id, props) {
     const entry = this.live.get(id);
@@ -1300,9 +1331,19 @@ export class ChartView {
     this.drawings.setBars(this.bars);
     this.chart.applyOptions({ timeScale: { timeVisible: !this.tf.daily } });
     if (resetView && this.bars.length) this.resetView();
+    this.updateScrollLatest();
     this.updateLegend(this.lastCrosshair);
     this.applyPaperMarkers();
     this.updateQuickTrade();
+  }
+
+  updateScrollLatest(range = this.chart.timeScale().getVisibleLogicalRange()) {
+    const button = this.q('.scroll-latest');
+    const scale = this.chart.timeScale();
+    const last = this.bars.length ? scale.timeToIndex(this.bars[this.bars.length - 1].time) : null;
+    button.hidden = !range || last == null || (last >= range.from && last <= range.to);
+    button.style.right = `${Math.max(0, this.chartEl.clientWidth - scale.width()) + 8}px`;
+    button.style.bottom = `${scale.height() + 8}px`;
   }
 
   /**
@@ -1427,6 +1468,7 @@ export class ChartView {
       this.renderAll(false);
     }
     this.drawings.setBars(this.bars);
+    this.updateScrollLatest();
     this.updateLegend(this.lastCrosshair);
     this.updateQuickTrade();
     this.hooks.onUpdate?.(this);
@@ -1781,9 +1823,11 @@ export class ChartView {
       const row = document.createElement('div');
       row.className = 'lg-row';
       row.dataset.id = entry.inst.id;
+      row.classList.toggle('lg-hidden', !!entry.inst.hidden);
       row.innerHTML = `<span class="lg-name">${esc(this.entryLabel(entry))}</span>
         <span class="lg-vals">${entry.error ? `<span class="lg-err">⚠ ${esc(entry.error)}</span>` : ''}</span>
         <span class="lg-actions">
+          <button data-act="visibility" title="${t(entry.inst.hidden ? 'common.show' : 'common.hide')}" aria-label="${t(entry.inst.hidden ? 'common.show' : 'common.hide')}" aria-pressed="${entry.inst.hidden}">${entry.inst.hidden ? ICON_EYE_OFF : ICON_EYE}</button>
           ${entry.script ? `<button data-act="code" title="${t('chart.editScript')}" aria-label="${t('chart.editScript')}">${ICON_CODE}</button>` : ''}
           <button data-act="settings" title="${t('common.settings')}" aria-label="${t('common.settings')}">${ICON_GEAR}</button>
           <button data-act="remove" title="${t('common.remove')}" aria-label="${t('common.remove')}">${ICON_X}</button>
@@ -1849,6 +1893,8 @@ export class ChartView {
       if (!entry.row || !entry.out || entry.error) continue;
       const k = Math.min(i, (entry.outLen ?? bars.length) - 1);
       let html = entry.series.map(({ plot }) => {
+        if (entry.inst.hidden) return '';
+        if (plot.hideLegend) return '';
         const v = entry.out[plot.key]?.[k];
         if (plot.optional && !Number.isFinite(v)) return '';
         let color = plot.colorFn && Number.isFinite(v) ? plot.colorFn(k, entry.out, bars, plot.key)

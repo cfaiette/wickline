@@ -242,6 +242,14 @@ body[data-resizing] .cell { pointer-events: none; }
 body.popout .cell-tools { display: none; }
 body.popout .hide-popout { display: none; }
 
+.scroll-latest {
+  position: absolute; z-index: 5; width: 30px; height: 30px; display: grid; place-items: center;
+  color: var(--text-strong); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: var(--shadow); cursor: pointer;
+}
+.scroll-latest:hover { background: var(--panel-2); }
+.scroll-latest:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* Selected drawing toolbar */
 .draw-bar {
   position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6;
@@ -292,6 +300,8 @@ body.popout .hide-popout { display: none; }
 .lg-actions { display: flex; gap: 2px; }
 .lg-actions button { opacity: 0; transition: opacity 0.12s; }
 .lg-row:hover .lg-actions button { opacity: 1; }
+.lg-row.lg-hidden .lg-name { opacity: 0.5; }
+.lg-row.lg-hidden .lg-actions button[data-act="visibility"] { opacity: 0.8; }
 /* Remove stays faintly visible, so it can be found without hovering first. */
 .lg-actions button[data-act="remove"], .lg-actions button[data-act="rm-cmp"] { opacity: 0.45; }
 .lg-actions button { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px; color: var(--muted); }

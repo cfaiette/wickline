@@ -208,6 +208,7 @@ function run({ code, data, inputs = {}, ctx = {} }) {
         title: String(opts.title || `Plot ${out.plots.length + 1}`).slice(0, 40),
         color, colors,
         type: STYLES.includes(opts.style) ? opts.style : 'line',
+        hideLegend: opts.hideLegend === true,
         width: opts.width ? Math.max(1, Math.min(4, Number(opts.width))) : undefined,
         values: Float64Array.from(values),
       });
@@ -224,7 +225,7 @@ function run({ code, data, inputs = {}, ctx = {} }) {
         if (typeof x === 'string' && /^p\d+$/.test(x) && Number(x.slice(1)) < out.plots.length) return x;
         throw new Error('fill(): pass two values returned by plot(), or numbers');
       };
-      out.fills.push({ from: ref(a), to: ref(b), color: opts.color || 'rgba(79, 163, 247, 0.12)' });
+      out.fills.push({ from: ref(a), to: ref(b), color: opts.color || 'rgba(79, 163, 247, 0.12)', label: String(opts.label || '').slice(0, 30) });
     },
     marker(condition, opts = {}) {
       const c = toSeries(condition, 'marker()');

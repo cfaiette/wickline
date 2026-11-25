@@ -42,6 +42,14 @@ export class BandFill {
           ctx.closePath();
           ctx.fillStyle = runColor;
           ctx.fill();
+          if (this.fill.label) {
+            const [x, ya, yb] = run[run.length - 1];
+            ctx.fillStyle = 'rgba(220, 220, 220, 0.9)';
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(this.fill.label, x - 4, Math.max(ya, yb) - 3);
+          }
         }
         run = [];
       };
