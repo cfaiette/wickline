@@ -6,7 +6,10 @@ import * as LWC from '../vendor/lightweight-charts.mjs';
 import { createFeed, tfById, parseSymbol, displayTicker, isCryptoSymbol, sourceName } from './datafeed.js';
 import { tfIdOf } from './timeframes.js';
 import { INDICATORS, PALETTE, UP, DOWN, defaultParams, indicatorLabel, optionLabel, heikinAshi, heikinAshiAt } from './indicators.js';
-import { DrawingLayer, DRAW_COLORS } from './drawings.js';
+import { DrawingLayer, DRAW_COLORS, SYMBOL_SIZE, isSymbol } from './drawings.js';
+import { applyEntryVisibility, isHidden, setHiddenFlag, syncMarkers } from './entry-visibility.js';
+import { closeFibPanel, fibPanelId, openFibPanel } from './fib-panel.js';
+import { STROKE_STYLES, STROKE_TOOLS, STROKE_WIDTH, clampWidth, strokeOf } from './stroke.js';
 import { BandFill, Countdown, TradeLines } from './primitives.js';
 import { engine, scriptStore } from './scripts.js';
 import { canRunCommunity } from './community.js';
@@ -95,7 +98,7 @@ function normalizeIndicator(i) {
     for (const [k, c] of Object.entries(i.colors)) if (/^[A-Za-z_][\w]{0,40}$/.test(k) && safeColor(c, null)) colors[k] = safeColor(c);
   }
   const out = { ...i, id: typeof i.id === 'string' && i.id ? i.id.slice(0, 64) : uid(), colors };
-  out.hidden = i.hidden === true;
+  setHiddenFlag(out, i.hidden === true); // hidden from the legend's eye button
   if (i.type === 'script') {
     // The script declares its settings when it runs (applyScriptResult coerces them then); keep plain values.
     const params = {};
@@ -139,8 +142,6 @@ export function cloneChartState(s, overrides = {}) {
 const ICON_GEAR = '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.3 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1L11 21h4l.3-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>';
 const ICON_X = '<svg viewBox="0 0 24 24" width="14" height="14"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>';
 const ICON_CODE = '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const ICON_EYE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
-const ICON_EYE_OFF = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l18 18M10.6 6.1A11 11 0 0 1 12 6c6.5 0 10 6 10 6a13 13 0 0 1-3 3.4M6.5 7.5A14 14 0 0 0 2 12s3.5 6 10 6a11 11 0 0 0 4-.7"/></svg>';
 const ICON_MAX = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 const ICON_POP = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
@@ -150,6 +151,17 @@ const ICON_STEP = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 5
 const ICON_CUT = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 3v18" stroke="currentColor" stroke-width="1.8" stroke-dasharray="2.5 2.5"/><path d="M5 9l-2 3 2 3M19 9l2 3-2 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 export const REPLAY_SPEEDS = [[0.5, '0.5×'], [1, '1×'], [2, '2×'], [3, '3×'], [5, '5×'], [10, '10×']];
 const ICON_BELL = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
+const EYE = '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
+const eyeIcon = (extra = '') => `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${EYE}${extra}</svg>`;
+const ICON_EYE = eyeIcon();
+const ICON_EYE_OFF = eyeIcon('<path d="M4 4l16 16"/>');
+// One sample of each line style, for the buttons in the drawing's toolbar.
+const STROKE_ICONS = {
+  solid: '<path d="M3 12h18"/>',
+  dashed: '<path d="M2.5 12h4M10 12h4M17.5 12h4"/>',
+  dotted: '<path d="M3.5 12h.01M8.5 12h.01M13.5 12h.01M18.5 12h.01" stroke-width="3"/>',
+};
+const strokeIcon = (style) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">${STROKE_ICONS[style]}</svg>`;
 const ICON_LABELS = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 7V5h11v2M9.5 5v13M7.5 18h4M14 12h6M17 12v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 /**
@@ -249,9 +261,17 @@ export class ChartView {
       <div class="pane-legends"></div>
       <div class="draw-bar" hidden>
         <div class="db-colors">${DRAW_COLORS.map((c) => `<button data-color="${c}" style="--c:${c}" aria-label="${t('chart.colorAria', { color: c })}"></button>`).join('')}</div>
+        <div class="db-stroke" hidden>
+          ${STROKE_STYLES.map((s) => `<button data-stroke="${s}" title="${t(`draw.style.${s}`)}" aria-label="${t(`draw.style.${s}`)}">${strokeIcon(s)}</button>`).join('')}
+          <label class="db-width" title="${t('draw.width')}"><input type="number" min="${STROKE_WIDTH.min}" max="${STROKE_WIDTH.max}" step="1" aria-label="${t('draw.width')}">px</label>
+        </div>
         <input class="db-text" placeholder="${t('draw.tool.text')}" maxlength="80" hidden>
+        <label class="db-size" title="${t('chart.symbolSize')}" hidden>
+          <input type="range" min="${SYMBOL_SIZE.min}" max="${SYMBOL_SIZE.max}" step="1" aria-label="${t('chart.symbolSize')}"><output></output>
+        </label>
         <button data-db="alert" title="${t('chart.alertAtPrice')}" hidden>${ICON_BELL}</button>
         <button data-db="labels" class="db-labels" hidden>${ICON_LABELS}</button>
+        <button data-db="fib" title="${t('common.settings')}" aria-label="${t('common.settings')}" hidden>${ICON_GEAR}</button>
         <button data-db="delete" title="${t('chart.deleteDel')}">${ICON_TRASH}</button>
       </div>
       <div class="rp-pick" hidden><div class="rp-dim"></div></div>
@@ -494,8 +514,8 @@ export class ChartView {
       const row = btn.closest('.lg-row');
       if (btn.dataset.act === 'rm-cmp') { this.removeCompare(row.dataset.cmp); return; }
       const id = row.dataset.id;
-      if (btn.dataset.act === 'remove') this.removeIndicator(id);
-      else if (btn.dataset.act === 'visibility') this.toggleIndicatorVisibility(id);
+      if (btn.dataset.act === 'eye') this.setIndicatorHidden(id, !isHidden(this.live.get(id)?.inst));
+      else if (btn.dataset.act === 'remove') this.removeIndicator(id);
       else if (btn.dataset.act === 'code') this.hooks.onEditScript?.(this, this.live.get(id)?.inst.scriptId);
       else this.openSettings(id, btn);
     };
@@ -512,6 +532,8 @@ export class ChartView {
     bar.addEventListener('click', (e) => {
       const color = e.target.closest('[data-color]')?.dataset.color;
       if (color) { this.drawings.updateSelected({ color }); return; }
+      const style = e.target.closest('[data-stroke]')?.dataset.stroke;
+      if (style) { this.drawings.updateSelected({ style }); return; }
       const act = e.target.closest('[data-db]')?.dataset.db;
       if (act === 'delete') this.drawings.deleteSelected();
       if (act === 'labels') {
@@ -522,23 +544,65 @@ export class ChartView {
         const d = this.drawings.selected;
         if (d) this.hooks.onCreateAlert?.(this, d.p1.price);
       }
+      if (act === 'fib') this.toggleFibPanel(e.target.closest('[data-db="fib"]'));
     });
     bar.querySelector('.db-text').addEventListener('input', (e) => this.drawings.updateSelected({ text: e.target.value }));
+    bar.querySelector('.db-text').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
+    bar.querySelector('.db-size input').addEventListener('input', (e) => {
+      this.drawings.updateSelected({ size: Number(e.target.value) });
+    });
+    bar.querySelector('.db-width input').addEventListener('input', (e) => {
+      if (e.target.value !== '' && Number.isFinite(Number(e.target.value))) this.drawings.updateSelected({ width: clampWidth(e.target.value) });
+    });
     bar.addEventListener('keydown', (e) => e.stopPropagation());
+  }
+
+  /** The gear on a selected Fib: its levels and options (fib-panel.js). The Fib keeps them in `d.fib`. */
+  toggleFibPanel(anchor) {
+    const d = this.drawings.selected;
+    if (!d || d.type !== 'fib') return;
+    if (fibPanelId() === d.id) { closeFibPanel(); return; }
+    closeSettings();
+    openFibPanel(anchor, d, {
+      onChange: (fib) => this.drawings.updateSelected({ fib }),
+      onReset: () => this.drawings.updateSelected({ fib: undefined, labels: undefined }),
+    });
   }
 
   showDrawBar(d) {
     const bar = this.q('.draw-bar');
     bar.hidden = !d;
+    if (!d || fibPanelId() !== d.id) closeFibPanel(); // the panel belongs to the Fib that was selected
     if (!d) return;
     bar.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('on', b.dataset.color === d.color));
     const text = bar.querySelector('.db-text');
-    text.hidden = d.type !== 'text';
-    if (d.type === 'text' && document.activeElement !== text) text.value = d.text || '';
+    const symbol = isSymbol(d.type);
+    text.hidden = d.type !== 'text' && !symbol;
+    if ((d.type === 'text' || symbol) && document.activeElement !== text) text.value = d.text || '';
+    const size = bar.querySelector('.db-size');
+    size.hidden = !symbol;
+    if (symbol) {
+      const range = size.querySelector('input');
+      if (document.activeElement !== range) range.value = d.size ?? SYMBOL_SIZE.default;
+      size.querySelector('output').textContent = `${d.size ?? SYMBOL_SIZE.default}px`;
+    }
+    if (symbol && this.drawings.focusText) { // just placed: type its label straight away
+      this.drawings.focusText = false;
+      requestAnimationFrame(() => { text.focus(); });
+    }
+    const stroke = bar.querySelector('.db-stroke');
+    stroke.hidden = !STROKE_TOOLS.has(d.type);
+    if (!stroke.hidden) {
+      const { style, width } = strokeOf(d);
+      stroke.querySelectorAll('[data-stroke]').forEach((b) => b.classList.toggle('on', b.dataset.stroke === style));
+      const input = stroke.querySelector('input');
+      if (document.activeElement !== input) input.value = width;
+    }
     bar.querySelector('[data-db="alert"]').hidden = !(d.type === 'hline' || d.type === 'hray');
     bar.querySelector('.db-colors').hidden = ['fib', 'long', 'short', 'measure'].includes(d.type);
     const labels = bar.querySelector('[data-db="labels"]');
-    labels.hidden = !['fib', 'long', 'short', 'avwap'].includes(d.type);
+    labels.hidden = !['long', 'short', 'avwap'].includes(d.type); // a Fib's labels are in its settings
+    bar.querySelector('[data-db="fib"]').hidden = d.type !== 'fib';
     const shown = d.labels !== false;
     labels.classList.toggle('on', shown);
     labels.title = t(shown ? 'chart.labelsHide' : 'chart.labelsShow');
@@ -671,18 +735,17 @@ export class ChartView {
     const first = entry.series[0]?.api;
     if (!first) return;
     if (def.scale === 'volume') c.priceScale('volume', 0).applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-    (def.levels || []).forEach((level, k) => {
-      first.createPriceLine({
-        price: level, color: def.levelColors?.[k] || THEMES[currentTheme].level,
-        lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: false,
-      });
-    });
+    entry.levelLines = (def.levels || []).map((level, k) => first.createPriceLine({
+      price: level, color: def.levelColors?.[k] || THEMES[currentTheme].level,
+      lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: false,
+    }));
     if (!def.overlay) first.getPane().setStretchFactor(0.3);
     entry.fillPrims = (def.fills || []).map((f) => {
-      const prim = new BandFill(() => entry.inst.hidden ? null : this.fillArrays(entry, f), f);
+      const prim = new BandFill(() => this.fillArrays(entry, f), f);
       first.attachPrimitive(prim);
       return { prim, target: first };
     });
+    if (isHidden(inst)) applyEntryVisibility(entry); // hidden with the eye button: stays hidden when rebuilt
   }
 
   fillArrays(entry, f) {
@@ -699,6 +762,7 @@ export class ChartView {
     try {
       for (const { prim, target } of entry.fillPrims || []) { try { target.detachPrimitive(prim); } catch { /* gone */ } }
       entry.fillPrims = [];
+      entry.levelLines = [];
       try { entry.markersApi?.detach(); } catch { /* gone */ }
       entry.markersApi = null;
       try { entry.tradeMarkers?.detach(); } catch { /* gone */ }
@@ -833,12 +897,12 @@ export class ChartView {
         entry.markersTarget = target;
       }
       // In bar order (script-sanitize.js sorts them) and never past the bars this run had.
-      entry.scriptMarkers = res.markers.filter((m) => times[m.i] != null)
+      entry.markerData = res.markers.filter((m) => times[m.i] != null)
         .map((m) => ({ time: times[m.i], position: m.position, shape: m.shape, color: m.color, text: m.text }));
-      entry.markersApi.setMarkers(entry.inst.hidden ? [] : entry.scriptMarkers);
-    } else if (entry.markersApi) {
-      entry.markersApi.setMarkers([]);
+    } else {
+      entry.markerData = [];
     }
+    syncMarkers(entry);
     if (res.strategy) this.applyStrategy(entry, res.strategy, times);
     if (structural || forceLegend) this.buildLegend();
     else this.updateLegend(this.lastCrosshair);
@@ -855,7 +919,7 @@ export class ChartView {
       try { entry.tradeMarkers?.detach(); } catch { /* gone */ }
       if (entry.tradeLines && entry.tradeTarget) { try { entry.tradeTarget.detachPrimitive(entry.tradeLines); } catch { /* gone */ } }
       entry.tradeMarkers = LWC.createSeriesMarkers(this.main, []);
-      entry.tradeLines = new TradeLines(() => entry.inst.hidden ? null : entry.tradeLineData);
+      entry.tradeLines = new TradeLines(() => entry.tradeLineData);
       this.main.attachPrimitive(entry.tradeLines);
       entry.tradeTarget = this.main;
     }
@@ -871,8 +935,9 @@ export class ChartView {
       return { time: times[m.i], position: long ? 'aboveBar' : 'belowBar', shape: long ? 'arrowDown' : 'arrowUp', color: '#E040FB', text: (Object.hasOwn(SHORT, m.reason) && SHORT[m.reason]) || m.reason };
     });
     markers.sort((a, b) => a.time - b.time);
-    entry.strategyMarkers = markers;
-    entry.tradeMarkers.setMarkers(entry.inst.hidden ? [] : markers);
+    entry.tradeMarkerData = markers;
+    entry.tradeLines.setHidden(isHidden(entry.inst));
+    syncMarkers(entry);
     entry.tradeLineData = {
       trades: report.trades.map((t) => ({ ei: t.entryIndex, ep: t.entryPrice, xi: t.exitIndex, xp: t.exitPrice, win: t.pnl > 0 })),
     };
@@ -880,19 +945,6 @@ export class ChartView {
 
   /** Strategy entries on this chart (for the Strategy Tester). */
   strategies() { return [...this.live.values()].filter((e) => e.def?.strategy); }
-
-  toggleIndicatorVisibility(id) {
-    const entry = this.live.get(id);
-    if (!entry) return;
-    entry.inst.hidden = !entry.inst.hidden;
-    for (const { api } of entry.series) api.applyOptions({ visible: !entry.inst.hidden });
-    entry.markersApi?.setMarkers(entry.inst.hidden ? [] : (entry.scriptMarkers || []));
-    entry.tradeMarkers?.setMarkers(entry.inst.hidden ? [] : (entry.strategyMarkers || []));
-    // Trade lines are attached to the main price series; trigger a redraw for their callback.
-    if (entry.tradeLines && this.main) this.main.applyOptions({});
-    this.buildLegend();
-    this.hooks.onChange?.(this);
-  }
 
   setStrategyProps(id, props) {
     const entry = this.live.get(id);
@@ -985,6 +1037,16 @@ export class ChartView {
     else { this.addBuiltinEntry(inst); this.buildLegend(); }
     this.hooks.onChange?.(this);
     return true;
+  }
+
+  /** The legend's eye button: hide or show an indicator on the chart without removing it. */
+  setIndicatorHidden(id, hidden) {
+    const entry = this.live.get(id);
+    if (!entry) return;
+    setHiddenFlag(entry.inst, hidden);
+    applyEntryVisibility(entry);
+    this.buildLegend();
+    this.hooks.onChange?.(this);
   }
 
   removeIndicator(id) {
@@ -1821,13 +1883,13 @@ export class ChartView {
     }
     for (const entry of this.live.values()) {
       const row = document.createElement('div');
-      row.className = 'lg-row';
+      const hidden = isHidden(entry.inst);
+      row.className = hidden ? 'lg-row off' : 'lg-row';
       row.dataset.id = entry.inst.id;
-      row.classList.toggle('lg-hidden', !!entry.inst.hidden);
       row.innerHTML = `<span class="lg-name">${esc(this.entryLabel(entry))}</span>
         <span class="lg-vals">${entry.error ? `<span class="lg-err">⚠ ${esc(entry.error)}</span>` : ''}</span>
         <span class="lg-actions">
-          <button data-act="visibility" title="${t(entry.inst.hidden ? 'common.show' : 'common.hide')}" aria-label="${t(entry.inst.hidden ? 'common.show' : 'common.hide')}" aria-pressed="${entry.inst.hidden}">${entry.inst.hidden ? ICON_EYE_OFF : ICON_EYE}</button>
+          <button data-act="eye" title="${t(hidden ? 'chart.indShow' : 'chart.indHide')}" aria-label="${t(hidden ? 'chart.indShow' : 'chart.indHide')}" aria-pressed="${!hidden}">${hidden ? ICON_EYE_OFF : ICON_EYE}</button>
           ${entry.script ? `<button data-act="code" title="${t('chart.editScript')}" aria-label="${t('chart.editScript')}">${ICON_CODE}</button>` : ''}
           <button data-act="settings" title="${t('common.settings')}" aria-label="${t('common.settings')}">${ICON_GEAR}</button>
           <button data-act="remove" title="${t('common.remove')}" aria-label="${t('common.remove')}">${ICON_X}</button>
@@ -1891,9 +1953,9 @@ export class ChartView {
 
     for (const entry of this.live.values()) {
       if (!entry.row || !entry.out || entry.error) continue;
+      if (isHidden(entry.inst)) { entry.row.querySelector('.lg-vals').innerHTML = ''; continue; }
       const k = Math.min(i, (entry.outLen ?? bars.length) - 1);
       let html = entry.series.map(({ plot }) => {
-        if (entry.inst.hidden) return '';
         if (plot.hideLegend) return '';
         const v = entry.out[plot.key]?.[k];
         if (plot.optional && !Number.isFinite(v)) return '';
