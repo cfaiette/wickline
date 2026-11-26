@@ -291,7 +291,16 @@ export class ChartView {
         <button data-db="fib" title="${t('common.settings')}" aria-label="${t('common.settings')}" hidden>${ICON_GEAR}</button>
         <button data-db="delete" title="${t('chart.deleteDel')}">${ICON_TRASH}</button>
       </div>
-      <div class="rp-pick" hidden><div class="rp-dim"></div></div>
+      <div class="rp-pick" hidden>
+        <div class="rp-dim">
+          <span class="rp-cut-icon" aria-hidden="true" hidden>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+              <path d="M8.1 8.1 20 20M8.1 15.9 20 4"/>
+            </svg>
+          </span>
+        </div>
+      </div>
       <div class="rp-banner" hidden>
         <span>${t('chart.replay.pickHint')}</span>
         <button data-rp="random" class="tb-btn">${t('chart.replay.random')}</button>
@@ -896,17 +905,18 @@ export class ChartView {
     }
     entry.running = true;
     entry.lastRun = performance.now();
-    const times = this.bars.map((b) => b.time);
-    engine().run(script.code, this.bars, entry.inst.params, { tfSec: this.tf.sec, symbol: this.state.symbol, strategy: entry.inst.strategy }, entry.inst.scriptId)
+    const bars = this.bars;
+    const times = bars.map((b) => b.time);
+    engine().run(script.code, bars, entry.inst.params, { tfSec: this.tf.sec, symbol: this.state.symbol, strategy: entry.inst.strategy }, entry.inst.scriptId)
       .then((res) => {
-        if (this.destroyed || this.live.get(entry.inst.id) !== entry) return;
+        if (this.destroyed || this.live.get(entry.inst.id) !== entry || this.bars !== bars) return;
         const hadError = !!entry.error;
         entry.error = null;
         entry.name = script.name;
         this.applyScriptResult(entry, res, times, hadError);
       })
       .catch((err) => {
-        if (this.destroyed || this.live.get(entry.inst.id) !== entry) return;
+        if (this.destroyed || this.live.get(entry.inst.id) !== entry || this.bars !== bars) return;
         if (err.restarted) { entry.again = true; return; } // another script hung; just try again
         entry.halted = !!err.halted; // timed out (scripts.js); the message is in the UI language
         entry.error = err.line ? t('chart.err.scriptLine', { line: err.line, message: err.message }) : err.message;
@@ -1582,6 +1592,10 @@ export class ChartView {
     this.lastFlush = performance.now();
     const prevLen = this.seriesLen;
     const n = this.bars.length;
+    const scale = this.chart.timeScale();
+    const previousTime = this.replay && n > prevLen ? this.bars[prevLen - 1]?.time : null;
+    const previousIndex = previousTime != null ? scale.timeToIndex(previousTime) : null;
+    const range = previousIndex != null ? scale.getVisibleLogicalRange() : null;
     try {
       if (this.state.chartType === 'heikin') for (let i = from; i < n; i++) this.ha[i] = heikinAshiAt(this.bars, this.ha, i);
       for (let i = from; i < n; i++) this.main.update(this.mainPoint(i), i < prevLen - 1);
@@ -1598,6 +1612,14 @@ export class ChartView {
     } catch (e) {
       console.warn('Live update fell back to a full redraw:', e);
       this.renderAll(false);
+    }
+    if (range && previousIndex >= range.from && previousIndex <= range.to) {
+      const latestIndex = scale.timeToIndex(this.lastBar.time);
+      const visible = scale.getVisibleLogicalRange();
+      if (latestIndex != null && visible && latestIndex > visible.to) {
+        const shift = latestIndex - previousIndex;
+        scale.setVisibleLogicalRange({ from: range.from + shift, to: range.to + shift });
+      }
     }
     this.drawings.setBars(this.bars);
     this.updateToLatest();
@@ -1631,7 +1653,7 @@ export class ChartView {
     this.q('.rp-banner').hidden = true;
     this.q('.rp-pick').hidden = true;
     if (this.replay) {
-      this.bars = this.replay.all.slice(0, this.replay.idx + 1);
+      this.cutReplayBars();
       this.renderAll(false);
       this.q('.replay-bar').hidden = false;
     }
@@ -1644,13 +1666,15 @@ export class ChartView {
     const el = this.q('.rp-pick');
     const x = param?.logical != null ? this.chart.timeScale().logicalToCoordinate(Math.round(param.logical)) : null;
     el.style.setProperty('--x', x == null ? '-10px' : `${x}px`);
+    el.querySelector('.rp-cut-icon').hidden = x == null;
   }
 
   pickReplayAt(p) {
     if (!p) return;
-    const l = this.chart.timeScale().coordinateToLogical(p.x);
-    if (l == null) return;
-    this.startReplay(Math.max(0, Math.min(this.bars.length - 1, Math.round(l))));
+    const time = this.chart.timeScale().coordinateToTime(p.x);
+    if (time == null) return;
+    const i = this.indexOfTime(time);
+    if (i >= 0) this.startReplay(i);
   }
 
   /** A random start, leaving some history before it and some candles to play after it. */
@@ -1684,24 +1708,38 @@ export class ChartView {
   /** Replays from candle i: candles after it are hidden until played. */
   startReplay(i) {
     const all = this.replay?.all || this.bars;
-    if (!all.length) return;
+    if (!all[i]) return;
     clearInterval(this.replay?.timer);
     const speed = this.replay?.speed || 1;
     this.replayPick = false;
     this.q('.rp-banner').hidden = true;
     this.q('.rp-pick').hidden = true;
     this.replay = { all, idx: i, playing: false, speed, timer: null, clock: 0 };
-    this.bars = all.slice(0, i + 1);
-    const range = this.chart.timeScale().getVisibleLogicalRange();
+    const scale = this.chart.timeScale();
+    const range = scale.getVisibleLogicalRange();
     const width = range ? Math.max(30, range.to - range.from) : 150;
+    this.cutReplayBars();
     this.renderAll(false);
-    this.chart.timeScale().setVisibleLogicalRange({ from: i - width * 0.8, to: i + width * 0.2 });
+    const index = scale.timeToIndex(this.lastBar.time);
+    if (index != null) scale.setVisibleLogicalRange({ from: index - width * 0.8, to: index + width * 0.2 });
     this.replay.clock = this.replayClock();
     this.q('.replay-bar').hidden = false;
     this.q('[data-rp="speed"]').value = String(speed);
     this.syncReplayBar();
     this.setStatus('replay');
     this.hooks.onReplay?.(this, 'start');
+  }
+
+  /** Remove script output from the prior timeline before rendering the replay cut. */
+  cutReplayBars() {
+    this.bars = this.replay.all.slice(0, this.replay.idx + 1);
+    for (const entry of this.live.values()) {
+      if (!entry.script) continue;
+      this.removeEntrySeries(entry);
+      entry.sig = null;
+      entry.out = null;
+      entry.report = null;
+    }
   }
 
   /** Shows the next candle. Returns false at the end of the data. */
@@ -1796,7 +1834,7 @@ export class ChartView {
     this.pauseReplay();
     this.replay.all = bars;
     this.replay.idx = i;
-    this.bars = bars.slice(0, i + 1);
+    this.cutReplayBars();
     this.q('.replay-bar').hidden = false;
     queueMicrotask(() => { if (this.replay) { this.replay.clock = this.replayClock(); this.syncReplayBar(); this.setStatus('replay'); this.hooks.onReplay?.(this, 'resume'); } });
   }
