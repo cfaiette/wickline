@@ -1224,7 +1224,7 @@ export class ChartView {
 
   destroy() {
     this.destroyed = true;
-    clearInterval(this.replay?.timer);
+    clearTimeout(this.replay?.timer);
     VIEWS.delete(this);
     this.loadGen++;
     this.feed?.close();
@@ -1709,7 +1709,7 @@ export class ChartView {
   startReplay(i) {
     const all = this.replay?.all || this.bars;
     if (!all[i]) return;
-    clearInterval(this.replay?.timer);
+    clearTimeout(this.replay?.timer);
     const speed = this.replay?.speed || 1;
     this.replayPick = false;
     this.q('.rp-banner').hidden = true;
@@ -1768,7 +1768,12 @@ export class ChartView {
     if (!r || r.playing || this.replayPick || !this.feed) return;
     if (r.idx >= r.all.length - 1) { this.hooks.onReplay?.(this, 'end'); return; }
     r.playing = true;
-    r.timer = setInterval(() => { if (!this.replayStep()) this.pauseReplay(); }, 1000 / r.speed);
+    const tick = () => {
+      if (this.replay !== r || !r.playing) return;
+      if (!this.replayStep()) { this.pauseReplay(); return; }
+      r.timer = setTimeout(tick, 1000 / r.speed);
+    };
+    r.timer = setTimeout(tick, 1000 / r.speed);
     this.syncReplayBar();
   }
 
@@ -1776,7 +1781,7 @@ export class ChartView {
     const r = this.replay;
     if (!r?.playing) return;
     r.playing = false;
-    clearInterval(r.timer);
+    clearTimeout(r.timer);
     r.timer = null;
     this.syncReplayBar();
   }
@@ -1814,7 +1819,7 @@ export class ChartView {
   }
 
   endReplay(notice) {
-    clearInterval(this.replay?.timer);
+    clearTimeout(this.replay?.timer);
     this.replay = null;
     this.q('.replay-bar').hidden = true;
     this.setStatus(this.feedStatus || 'connecting');
