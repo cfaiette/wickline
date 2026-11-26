@@ -65,7 +65,7 @@ function chartOptions(themeName) {
 }
 
 // Series colors of the current theme (see theme.js).
-let CANDLES = { up: UP, down: DOWN, wickUp: UP, wickDown: DOWN, line: '#E5484D', accent: '#E5484D' };
+let CANDLES = { up: UP, down: DOWN, upBorder: UP, downBorder: DOWN, wickUp: UP, wickDown: DOWN, transparentBodies: { up: false, down: false }, line: '#E5484D', accent: '#E5484D' };
 const alpha = withAlpha;
 
 /** Applies a full palette from theme.js: chart colors for a mode, plus candle and line colors. */
@@ -99,6 +99,19 @@ function normalizeIndicator(i) {
     for (const [k, c] of Object.entries(i.colors)) if (/^[A-Za-z_][\w]{0,40}$/.test(k) && safeColor(c, null)) colors[k] = safeColor(c);
   }
   const out = { ...i, id: typeof i.id === 'string' && i.id ? i.id.slice(0, 64) : uid(), colors };
+  const plotOptions = {};
+  const validPlots = i.type === 'script' ? [] : (INDICATORS[i.type]?.plots || [])
+    .filter((plot) => plot.type !== 'histogram' && plot.type !== 'dots');
+  if (i.plotOptions && typeof i.plotOptions === 'object') {
+    for (const [key, value] of Object.entries(i.plotOptions)) {
+      if (!/^[A-Za-z_][\w]{0,40}$/.test(key) || !validPlots.some((plot) => plot.key === key) || !value || typeof value !== 'object') continue;
+      const option = {};
+      if (Number.isFinite(value.width)) option.width = Math.max(1, Math.min(4, Math.round(value.width)));
+      if (['solid', 'dashed', 'dotted'].includes(value.style)) option.style = value.style;
+      if (Object.keys(option).length) plotOptions[key] = option;
+    }
+  }
+  out.plotOptions = plotOptions;
   setHiddenFlag(out, i.hidden === true); // hidden from the legend's eye button
   if (i.type === 'script') {
     // The script declares its settings when it runs (applyScriptResult coerces them then); keep plain values.
@@ -658,7 +671,15 @@ export class ChartView {
   createMainSeries() {
     const common = { priceFormat: this.priceFormat(), autoscaleInfoProvider: this.autoscaleWithExt };
     const { up, down, wickUp, wickDown, line: lineColor } = CANDLES;
-    const candle = { upColor: up, downColor: down, borderVisible: false, wickUpColor: wickUp, wickDownColor: wickDown };
+    const candle = {
+      upColor: CANDLES.transparentBodies.up ? 'rgba(0,0,0,0)' : up,
+      downColor: CANDLES.transparentBodies.down ? 'rgba(0,0,0,0)' : down,
+      borderVisible: true,
+      borderUpColor: CANDLES.upBorder,
+      borderDownColor: CANDLES.downBorder,
+      wickUpColor: wickUp,
+      wickDownColor: wickDown,
+    };
     const line = { ...common, color: lineColor, lineWidth: 2 };
     const c = this.chart;
     switch (this.state.chartType) {
@@ -680,7 +701,7 @@ export class ChartView {
       case 'columns': this.main = c.addSeries(LWC.HistogramSeries, { ...common, base: this.columnsBase() }, 0); break;
       case 'hollow':
         this.main = c.addSeries(LWC.CandlestickSeries, {
-          ...common, ...candle, upColor: 'rgba(0,0,0,0)', borderVisible: true, borderUpColor: up, borderDownColor: down,
+          ...common, ...candle, upColor: 'rgba(0,0,0,0)',
         }, 0); break;
       default: this.main = c.addSeries(LWC.CandlestickSeries, { ...common, ...candle }, 0);
     }
@@ -755,7 +776,11 @@ export class ChartView {
       if (plot.type === 'histogram') {
         api = c.addSeries(LWC.HistogramSeries, opts, paneIndex);
       } else {
-        const lineOpts = { ...opts, lineWidth: plot.width ?? 2, crosshairMarkerRadius: 3 };
+        const saved = inst.plotOptions?.[plot.key] || {};
+        const style = saved.style || 'solid';
+        const lineStyle = style === 'dashed' ? LWC.LineStyle.Dashed
+          : style === 'dotted' ? LWC.LineStyle.Dotted : LWC.LineStyle.Solid;
+        const lineOpts = { ...opts, lineWidth: saved.width ?? plot.width ?? 2, lineStyle, crosshairMarkerRadius: 3 };
         if (plot.type === 'dots') Object.assign(lineOpts, { lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 2, crosshairMarkerVisible: false });
         if (plot.type === 'step') lineOpts.lineType = LWC.LineType.WithSteps;
         api = c.addSeries(LWC.LineSeries, lineOpts, paneIndex);
@@ -2030,6 +2055,7 @@ export class ChartView {
     const { inst, def } = entry;
     const el = settings.el;
     const colorPlots = def.plots.filter((p) => !p.colorFn && !p.colorsArr);
+    const linePlots = entry.script ? [] : def.plots.filter((p) => p.type !== 'histogram' && p.type !== 'dots');
     // Every value is escaped: settings come from saved state and from scripts (see coerceParams).
     const field = (p) => {
       const v = inst.params[p.key] ?? p.def;
@@ -2048,7 +2074,19 @@ export class ChartView {
         <label class="pop-field"><span>${t('chart.plotColor', { title: esc(p.title) })}</span>
           <input type="color" data-color="${esc(p.key)}" value="${/^#[0-9a-f]{6}$/i.test(plotColor(inst, p)) ? plotColor(inst, p) : '#4FA3F7'}">
         </label>`).join('')}
-      ${!def.params.length && !colorPlots.length ? `<p class="pop-note">${t('chart.noSettings')}</p>` : ''}
+      ${linePlots.map((p) => {
+        const saved = inst.plotOptions?.[p.key] || {};
+        const width = saved.width ?? p.width ?? 2;
+        const style = saved.style || 'solid';
+        return `<div class="pop-plot-options"><div class="pop-plot-title">${esc(p.title)}</div>
+          <label class="pop-field"><span>${t('chart.lineWidth')}</span><input type="number" data-line-width="${esc(p.key)}" value="${width}" min="1" max="4" step="1"></label>
+          <label class="pop-field"><span>${t('chart.lineStyle')}</span><select data-line-style="${esc(p.key)}">
+            <option value="solid"${style === 'solid' ? ' selected' : ''}>${t('draw.style.solid')}</option>
+            <option value="dashed"${style === 'dashed' ? ' selected' : ''}>${t('draw.style.dashed')}</option>
+            <option value="dotted"${style === 'dotted' ? ' selected' : ''}>${t('draw.style.dotted')}</option>
+          </select></label></div>`;
+      }).join('')}
+      ${!def.params.length && !colorPlots.length && !linePlots.length ? `<p class="pop-note">${t('chart.noSettings')}</p>` : ''}
       <div class="pop-actions">
         <button class="btn-ghost" data-act="defaults">${t('chart.defaults')}</button>
         <button class="btn-primary" data-act="close">${t('common.done')}</button>
@@ -2081,6 +2119,28 @@ export class ChartView {
     } else if (t.dataset.color) {
       entry.inst.colors = { ...entry.inst.colors, [t.dataset.color]: t.value };
       entry.series.find((x) => x.plot.key === t.dataset.color)?.api.applyOptions({ color: t.value });
+    } else if (t.dataset.lineWidth || t.dataset.lineStyle) {
+      const key = t.dataset.lineWidth || t.dataset.lineStyle;
+      const plot = entry.def.plots.find((candidate) => candidate.key === key);
+      if (!plot || plot.type === 'histogram' || plot.type === 'dots') return;
+      const current = entry.inst.plotOptions?.[key] || {};
+      const next = { ...current };
+      if (t.dataset.lineWidth) {
+        const width = Number(t.value);
+        if (t.value === '' || !Number.isFinite(width)) return;
+        next.width = Math.max(1, Math.min(4, Math.round(width)));
+        t.value = String(next.width);
+      } else {
+        if (!['solid', 'dashed', 'dotted'].includes(t.value)) return;
+        next.style = t.value;
+      }
+      entry.inst.plotOptions = { ...entry.inst.plotOptions, [key]: next };
+      const lineStyle = next.style === 'dashed' ? LWC.LineStyle.Dashed
+        : next.style === 'dotted' ? LWC.LineStyle.Dotted : LWC.LineStyle.Solid;
+      entry.series.find((series) => series.plot.key === key)?.api.applyOptions({
+        lineWidth: next.width ?? plot.width ?? 2,
+        lineStyle,
+      });
     }
     this.updateLegend(this.lastCrosshair);
     this.hooks.onChange?.(this);
@@ -2091,6 +2151,7 @@ export class ChartView {
     if (!entry) return;
     entry.inst.params = entry.script ? {} : defaultParams(entry.inst.type);
     entry.inst.colors = {};
+    entry.inst.plotOptions = {};
     closeSettings();
     this.rebuildSeries();
     this.hooks.onChange?.(this);

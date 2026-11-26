@@ -7,6 +7,7 @@ const scale = input('Zone Difference Scale', 1.8, { min: 1, max: 100, step: 0.1 
 const showSupply = input('Supply zones', true);
 const showDemand = input('Demand zones', true);
 const showForming = input('Show forming zones', false);
+const showValues = input('Show zone price values', false);
 const tf30 = input('30m', true);
 const tf45 = input('45m', true);
 const tf60 = input('1h', true);
@@ -72,8 +73,8 @@ for (const [label, seconds, enabled] of frames) {
       for (let i = z.start; i < n; i++) { upper[i] = z.top; lower[i] = z.bottom; }
       const edge = kind === 'Supply' ? 'rgba(242, 54, 69, 0.3)' : 'rgba(76, 175, 80, 0.3)';
       const shade = kind === 'Supply' ? 'rgba(242, 54, 69, 0.06)' : 'rgba(76, 175, 80, 0.06)';
-      const top = plot(upper, { title: label + ' ' + kind + ' top ' + (k + 1), color: edge, style: 'step', width: 1, hideLegend: true });
-      const bottom = plot(lower, { title: label + ' ' + kind + ' bottom ' + (k + 1), color: edge, style: 'step', width: 1, hideLegend: true });
+      const top = plot(upper, { title: label + ' ' + kind + ' top ' + (k + 1), color: edge, style: 'step', width: 1, hideLegend: !showValues });
+      const bottom = plot(lower, { title: label + ' ' + kind + ' bottom ' + (k + 1), color: edge, style: 'step', width: 1, hideLegend: !showValues });
       fill(top, bottom, { color: shade, label });
     }
   }

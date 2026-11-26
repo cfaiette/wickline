@@ -1769,6 +1769,9 @@ export function defaultParams(type, defs = INDICATORS) {
 }
 
 export function indicatorLabel(def, inst) {
+  // Script inputs are editable from the settings button; listing every value in
+  // the legend makes multi-input scripts unreadable.
+  if (def.script) return def.short;
   const vals = (def.params || []).map((p) => inst.params?.[p.key] ?? p.def);
   return vals.length ? `${def.short} ${vals.join(' ')}` : def.short;
 }

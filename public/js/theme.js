@@ -79,6 +79,8 @@ export const FIELDS = [
   { group: t('theme.group.chart'), key: 'crosshair', label: t('theme.field.crosshair') },
   { group: t('theme.group.candles'), key: 'up', label: t('theme.field.up') },
   { group: t('theme.group.candles'), key: 'down', label: t('theme.field.down') },
+  { group: t('theme.group.candles'), key: 'upBorder', label: t('theme.field.upBorder') },
+  { group: t('theme.group.candles'), key: 'downBorder', label: t('theme.field.downBorder') },
   { group: t('theme.group.candles'), key: 'wickUp', label: t('theme.field.wickUp') },
   { group: t('theme.group.candles'), key: 'wickDown', label: t('theme.field.wickDown') },
   { group: t('theme.group.candles'), key: 'line', label: t('theme.field.line') },
@@ -104,6 +106,9 @@ function load() {
   return {
     preset: PRESETS[s?.preset] ? s.preset : DEFAULT_PRESET,
     custom: { dark: { ...s?.custom?.dark }, light: { ...s?.custom?.light } },
+    transparentBodies: typeof s?.transparentBodies === 'object'
+      ? { up: s.transparentBodies.up === true, down: s.transparentBodies.down === true }
+      : { up: s?.transparentBodies === true, down: s?.transparentBodies === true },
   };
 }
 const save = () => store.set('appearance', state);
@@ -117,6 +122,8 @@ export function palette(mode = currentMode()) {
   const p = { ...PRESETS[state.preset][mode], ...state.custom[mode] };
   p.wickUp ||= p.up;
   p.wickDown ||= p.down;
+  p.upBorder ||= p.up;
+  p.downBorder ||= p.down;
   p.line ||= p.accent;
   return p;
 }
@@ -157,7 +164,8 @@ export function applyAppearance({ immediate = true } = {}) {
     setChartPalette(mode, {
       bg: p.chartBg, text: p.scaleText, grid: p.grid, border: p.border, crosshair: p.crosshair,
       label: mix(p.chartBg, p.text, dark(mode) ? 0.22 : 0.85), separator: p.border, strong: p.text, level: p.muted,
-    }, { up: p.up, down: p.down, wickUp: p.wickUp, wickDown: p.wickDown, line: p.line, accent: p.accent });
+    }, { up: p.up, down: p.down, upBorder: p.upBorder, downBorder: p.downBorder,
+      wickUp: p.wickUp, wickDown: p.wickDown, transparentBodies: { ...state.transparentBodies }, line: p.line, accent: p.accent });
     for (const fn of listeners) fn(p, mode);
   };
   clearTimeout(chartTimer);
@@ -170,7 +178,7 @@ export const onAppearanceChange = (fn) => listeners.add(fn);
 
 export function setPreset(id) {
   if (!PRESETS[id]) return;
-  state = { preset: id, custom: { dark: {}, light: {} } };
+  state = { preset: id, custom: { dark: {}, light: {} }, transparentBodies: state.transparentBodies };
   save();
   applyAppearance();
 }
@@ -183,6 +191,14 @@ export function setColor(key, value, { live = false } = {}) {
 
 export function resetColors() {
   state.custom[currentMode()] = {};
+  save();
+  applyAppearance();
+}
+
+export const transparentBodies = () => ({ ...state.transparentBodies });
+export function setTransparentBody(direction, value) {
+  if (direction !== 'up' && direction !== 'down') return;
+  state.transparentBodies[direction] = value === true;
   save();
   applyAppearance();
 }

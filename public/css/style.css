@@ -721,6 +721,8 @@ body.popout .hide-popout { display: none; }
 .pop-field input:focus, .pop-field select:focus { outline: none; border-color: var(--accent); }
 .pop-field input[type="color"] { width: 40px; height: 26px; padding: 0; border: 1px solid var(--panel-2); border-radius: 4px; background: none; cursor: pointer; }
 .pop-field input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+.pop-plot-options { padding-top: 7px; margin-top: 7px; border-top: 1px solid var(--border); }
+.pop-plot-title { margin-bottom: 7px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .pop-note { color: var(--muted); margin: 0 0 10px; }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 /* The point editor (point-editor.js, issue #6): exact prices, dates and a label for a drawing. */
@@ -844,6 +846,9 @@ body.popout .hide-popout { display: none; }
 .appear-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; margin-bottom: 8px; }
 .appear-group { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .appear-field { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+.appear-color-field { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer; }
+.appear-body-check { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; white-space: nowrap; cursor: pointer; }
+.appear-body-check input { accent-color: var(--accent); }
 .appear-field input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: none; cursor: pointer; }
 .appear-field input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 .appear-field input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }

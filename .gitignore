@@ -4,3 +4,5 @@ Thumbs.db
 dist/
 node_modules/
 npm-debug.log*
+wickline-server.log
+wickline-server-error.log

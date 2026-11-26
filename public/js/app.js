@@ -11,7 +11,7 @@ import {
 } from './chart-view.js';
 import {
   PRESETS, FIELDS, palette, presetId, isCustomized, currentMode, applyAppearance, onAppearanceChange,
-  setPreset, setColor, resetColors,
+  transparentBodies, setTransparentBody, setPreset, setColor, resetColors,
 } from './theme.js';
 import { TOOLS, MAGNET_MODES } from './drawings.js';
 import { SymbolSearch } from './search.js';
@@ -745,10 +745,15 @@ function renderAppearance() {
   $('#appear-mode-label').textContent = custom ? t('theme.editingCustom', editing) : t('theme.editing', editing);
   $('#appear-mode-switch').textContent = mode === 'dark' ? t('theme.editLight') : t('theme.editDark');
   $('#appear-reset').hidden = !custom;
+  const transparent = transparentBodies();
   const p = palette(mode);
   let group = '';
   $('#appear-fields').innerHTML = FIELDS.map((f) => {
     const head = f.group !== group ? `<div class="appear-group">${esc((group = f.group))}</div>` : '';
+    if (f.key === 'up' || f.key === 'down') {
+      return `${head}<div class="appear-field"><label class="appear-color-field"><input type="color" data-key="${f.key}" value="${p[f.key]}"><span>${esc(f.label)}</span>
+        <code>${p[f.key]}</code></label><label class="appear-body-check"><input type="checkbox" data-transparent-body="${f.key}"${transparent[f.key] ? ' checked' : ''}><span data-i18n="theme.transparentShort">Transparent</span></label></div>`;
+    }
     return `${head}<label class="appear-field"><input type="color" data-key="${f.key}" value="${p[f.key]}"><span>${esc(f.label)}</span>
       <code>${p[f.key]}</code></label>`;
   }).join('');
@@ -769,7 +774,11 @@ $('#appear-fields').addEventListener('input', (e) => {
   setColor(key, e.target.value, { live: true }); // charts follow a moment after the picker stops moving
   e.target.parentElement.querySelector('code').textContent = e.target.value.toUpperCase();
 });
-$('#appear-fields').addEventListener('change', () => renderAppearance());
+$('#appear-fields').addEventListener('change', (e) => {
+  const direction = e.target.dataset?.transparentBody;
+  if (direction) setTransparentBody(direction, e.target.checked);
+  renderAppearance();
+});
 $('#appear-mode-switch').addEventListener('click', () => applyTheme(currentMode() === 'light' ? 'dark' : 'light'));
 $('#appear-reset').addEventListener('click', () => { resetColors(); renderAppearance(); });
 applyAppearance();
